@@ -1,0 +1,55 @@
+ỨNG DỤNG NHẬN DIỆN TÊN BÀI NHẠC TỪ LỜI THOẠI 
+FR-01: Khởi động ứng dụng 
+• Hệ thống phải cho phép người dùng mở ứng dụng và truy cập màn hình chính. 
+• Màn hình chính phải hiển thị nút ghi âm và khu vực hiển thị kết quả. 
+FR-02: Ghi âm giọng nói 
+• Hệ thống phải cho phép người dùng: 
+o Nhấn nút Record để bắt đầu thu âm. 
+o Nhấn nút Stop để kết thúc thu âm. 
+• Hệ thống phải ghi nhận âm thanh từ microphone của thiết bị. 
+FR-03: Xử lý giọng nói thành văn bản (Speech-to-Text) 
+• Sau khi người dùng dừng ghi âm, hệ thống phải: 
+o Tự động chuyển đổi giọng nói thành văn bản. 
+• Văn bản nhận diện được phải hiển thị trên màn hình cho người dùng kiểm tra. 
+FR-04: Phân tích lời bài hát 
+• Hệ thống phải phân tích nội dung văn bản đã nhận diện. 
+• Hệ thống phải loại bỏ: 
+o Từ dư thừa 
+o Ký tự không cần thiết 
+o Khoảng trắng thừa 
+FR-05: Tìm kiếm bài hát 
+• Hệ thống phải sử dụng nội dung lời bài hát để: 
+o So khớp với cơ sở dữ liệu hoặc API bài hát. 
+• Hệ thống phải hỗ trợ tìm kiếm không yêu cầu lời chính xác 100%. 
+FR-06: Hiển thị kết quả 
+• Nếu tìm thấy bài hát, hệ thống phải hiển thị: 
+o Tên bài hát 
+o Tên ca sĩ (nếu có) 
+o Một phần lời bài hát tương ứng (khuyến khích) 
+• Nếu không tìm thấy kết quả, hệ thống phải hiển thị thông báo: 
+o “Không tìm thấy bài hát phù hợp.” 
+FR-07: Xử lý lỗi giọng nói 
+• Hệ thống phải thông báo khi: 
+o Người dùng không nói 
+o Giọng nói không rõ 
+o Không nhận diện được lời thoại 
+• Cho phép người dùng ghi âm lại. 
+FR-08: Điều khiển tìm kiếm 
+• Hệ thống phải cho phép người dùng: 
+o Thực hiện tìm kiếm lại mà không cần thoát ứng dụng. 
+o Xóa kết quả tìm kiếm hiện tại. 
+FR-09: Lưu lịch sử tìm kiếm  
+• Hệ thống có thể cho phép lưu: 
+o Lời thoại đã nhận diện 
+o Kết quả bài hát 
+• Người dùng có thể xem lại lịch sử tìm kiếm. 
+FR-10: Hỗ trợ đa ngôn ngữ  
+• Hệ thống có thể hỗ trợ nhận diện lời bài hát bằng nhiều ngôn ngữ. 
+• Người dùng có thể chọn ngôn ngữ trước khi ghi âm. 
+FR-11: Nghe thử bài hát  
+• Hệ thống có thể cho phép người dùng: 
+o Nghe đoạn nhạc mẫu của bài hát được nhận diện. 
+• Chức năng này chỉ hoạt động khi có kết quả tìm kiếm hợp lệ. 
+FR-12: Thoát ứng dụng 
+• Hệ thống phải cho phép người dùng thoát ứng dụng an toàn mà không làm mất 
+dữ liệu.
