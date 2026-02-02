@@ -192,22 +192,8 @@ Surface:   #F5F5F5 (Light Gray)
 - **Success**: Green checkmark, song result
 - **Error**: Red message, error text
 
-## 📝 TODO / Improvements
 
-### Short-term
-- [ ] Implement real Speech-to-Text API
-- [ ] Add your actual Genius API key
-- [ ] Test trên thiết bị thật
-- [ ] Handle edge cases
 
-### Long-term (Optional)
-- [ ] Audio preview playback (FR-11)
-- [ ] Dark mode
-- [ ] Share results
-- [ ] Offline mode
-- [ ] More languages
-
-## 🐛 Troubleshooting
 
 ### "No microphone permission"
 - iOS: Settings > Privacy > Microphone > [Your App]
@@ -221,17 +207,5 @@ Surface:   #F5F5F5 (Light Gray)
 - Thử lời bài hát phổ biến hơn
 - Genius API chủ yếu có bài Tiếng Anh
 
-## 📄 License
 
-MIT License - Dự án học tập VLU
-
-## 👨‍💻 Author
-
-YaoMing-dev
-
-## 📞 Support
-
-Nếu có vấn đề, tham khảo:
-- IMPLEMENTATION_PLAN.md - Chi tiết kế hoạch
-- Requirements.txt - Yêu cầu gốc
 
