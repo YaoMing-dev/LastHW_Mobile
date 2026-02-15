@@ -5,10 +5,11 @@ import { GENIUS_API_KEY, GENIUS_BASE_URL } from '../utils/constants';
 import textProcessor from '../utils/textProcessor';
 
 class GeniusService {
-  private async fetchGenius(query: string): Promise<any> {
+  private async fetchGenius(query: string, type?: 'song' | 'lyric'): Promise<any> {
+    const typeParam = type ? `&type=${type}` : '';
     if (Platform.OS === 'web') {
       // Web: use Metro dev server proxy at /genius-proxy/* (no CORS issues)
-      const proxyUrl = `/genius-proxy/search?q=${encodeURIComponent(query)}&access_token=${GENIUS_API_KEY}`;
+      const proxyUrl = `/genius-proxy/search?q=${encodeURIComponent(query)}&access_token=${GENIUS_API_KEY}${typeParam}`;
       const res = await fetch(proxyUrl, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
@@ -17,7 +18,7 @@ class GeniusService {
       return res.json();
     } else {
       // Native: direct call, no CORS
-      const url = `${GENIUS_BASE_URL}/search?q=${encodeURIComponent(query)}&access_token=${GENIUS_API_KEY}`;
+      const url = `${GENIUS_BASE_URL}/search?q=${encodeURIComponent(query)}&access_token=${GENIUS_API_KEY}${typeParam}`;
       const res = await fetch(url, {
         method: 'GET',
         headers: { 'Accept': 'application/json' },
@@ -26,7 +27,7 @@ class GeniusService {
     }
   }
 
-  // Search song by lyrics - tries multiple query variations for fuzzy matching
+  // Search song by lyrics - uses type=lyric for lyrics search, falls back to title search
   async searchByLyrics(lyrics: string): Promise<SongResult | null> {
     try {
       const queries = textProcessor.buildSearchQueries(lyrics);
@@ -36,13 +37,31 @@ class GeniusService {
         if (query.length < 2) continue;
 
         try {
-          console.log('[GeniusService] Trying:', query);
-          const data = await this.fetchGenius(query);
-          const hits = data?.response?.hits;
+          console.log('[GeniusService] Trying lyrics search:', query);
+          // Try lyrics-type search first
+          const data = await this.fetchGenius(query, 'lyric');
+          const hits = this.extractHits(data);
 
-          if (hits && hits.length > 0) {
+          if (hits.length > 0) {
             const firstHit = hits[0].result;
             console.log('[GeniusService] Found:', firstHit.title, '-', firstHit.primary_artist?.name);
+
+            return {
+              title: firstHit.title,
+              artist: firstHit.primary_artist?.name || 'Unknown',
+              lyrics: firstHit.title_with_featured || '',
+              url: firstHit.url,
+              albumArt: firstHit.song_art_image_url,
+            };
+          }
+
+          // Fallback to normal search (title match)
+          const titleData = await this.fetchGenius(query, 'song');
+          const titleHits = this.extractHits(titleData);
+
+          if (titleHits.length > 0) {
+            const firstHit = titleHits[0].result;
+            console.log('[GeniusService] Found via title:', firstHit.title);
 
             return {
               title: firstHit.title,
@@ -97,52 +116,109 @@ class GeniusService {
     }
   }
 
+  // Extract hits array from Genius API response (handles both formats)
+  private extractHits(data: any): any[] {
+    if (!data?.response) return [];
+    // Standard format: response.hits[]
+    if (Array.isArray(data.response.hits) && data.response.hits.length > 0) {
+      return data.response.hits;
+    }
+    // Sections format (some endpoints): response.sections[].hits[]
+    if (Array.isArray(data.response.sections)) {
+      const allHits = data.response.sections.flatMap((s: any) => s.hits || []);
+      if (allHits.length > 0) return allHits;
+    }
+    return [];
+  }
+
+  // Parse hits from Genius API response into SongResult array
+  private parseHits(hits: any[], limit: number = 5): SongResult[] {
+    return hits.slice(0, limit)
+      .filter((hit: any) => hit?.result)
+      .map((hit: any) => {
+        const r = hit.result;
+        return {
+          title: r.title || 'Unknown',
+          artist: r.primary_artist?.name || 'Unknown',
+          lyrics: r.title_with_featured || '',
+          url: r.url || '',
+          albumArt: r.song_art_image_url,
+        };
+      });
+  }
+
+  // Deduplicate results by title+artist (case-insensitive)
+  private deduplicateResults(results: SongResult[]): SongResult[] {
+    const seen = new Set<string>();
+    return results.filter((song) => {
+      const key = `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   // Search and return multiple results (top 5) with iTunes preview URLs
+  // Combines both lyrics search (type=lyric) and title search for best accuracy
   async searchMultiple(lyrics: string): Promise<SongResult[]> {
     try {
       const queries = textProcessor.buildSearchQueries(lyrics);
       console.log('[GeniusService] searchMultiple queries:', queries);
 
-      for (const query of queries) {
-        if (query.length < 2) continue;
+      // Run lyrics search and title search in parallel for the best query
+      const bestQuery = queries[0] || lyrics;
+      let allResults: SongResult[] = [];
 
-        try {
-          const data = await this.fetchGenius(query);
-          const hits = data?.response?.hits;
+      // Try lyrics-type search first (better for spoken lyrics)
+      // and normal search (better for song titles) in parallel
+      const [lyricData, titleData] = await Promise.all([
+        this.fetchGenius(bestQuery, 'lyric').catch(() => null),
+        this.fetchGenius(bestQuery, 'song').catch(() => null),
+      ]);
 
-          if (hits && hits.length > 0) {
-            const results: SongResult[] = hits.slice(0, 5).map((hit: any) => {
-              const r = hit.result;
-              return {
-                title: r.title,
-                artist: r.primary_artist?.name || 'Unknown',
-                lyrics: r.title_with_featured || '',
-                url: r.url,
-                albumArt: r.song_art_image_url,
-              };
-            });
+      const lyricHits = this.extractHits(lyricData);
+      const titleHits = this.extractHits(titleData);
 
-            // Fetch lyrics snippets + iTunes preview URLs in parallel
-            const withPreviews = await Promise.all(
-              results.map(async (song) => {
-                const [previewUrl, lyricsSnippet] = await Promise.all([
-                  this.fetchItunesPreview(song.title, song.artist),
-                  this.fetchLyricsSnippet(song.title, song.artist),
-                ]);
-                return { ...song, previewUrl, lyrics: lyricsSnippet || song.lyrics };
-              })
-            );
+      console.log('[GeniusService] Lyric hits:', lyricHits.length, '| Title hits:', titleHits.length);
 
-            console.log('[GeniusService] Found', withPreviews.length, 'results with previews');
-            return withPreviews;
+      // Prioritize lyric matches, then fill with title matches
+      const lyricResults = this.parseHits(lyricHits, 5);
+      const titleResults = this.parseHits(titleHits, 5);
+      allResults = this.deduplicateResults([...lyricResults, ...titleResults]).slice(0, 5);
+
+      // If no results from parallel search, fall back to other query variations
+      if (allResults.length === 0) {
+        for (const query of queries.slice(1)) {
+          if (query.length < 2) continue;
+          try {
+            const data = await this.fetchGenius(query, 'lyric');
+            const hits = this.extractHits(data);
+            if (hits.length > 0) {
+              allResults = this.parseHits(hits, 5);
+              break;
+            }
+          } catch (err) {
+            console.warn('[GeniusService] Fallback query failed:', query, err);
+            continue;
           }
-        } catch (err) {
-          console.warn('[GeniusService] Query failed:', query, err);
-          continue;
         }
       }
 
-      return [];
+      if (allResults.length === 0) return [];
+
+      // Fetch lyrics snippets + iTunes preview URLs in parallel
+      const withPreviews = await Promise.all(
+        allResults.map(async (song) => {
+          const [previewUrl, lyricsSnippet] = await Promise.all([
+            this.fetchItunesPreview(song.title, song.artist),
+            this.fetchLyricsSnippet(song.title, song.artist),
+          ]);
+          return { ...song, previewUrl, lyrics: lyricsSnippet || song.lyrics };
+        })
+      );
+
+      console.log('[GeniusService] Found', withPreviews.length, 'results with previews');
+      return withPreviews;
     } catch (error) {
       console.error('[GeniusService] searchMultiple error:', error);
       return [];

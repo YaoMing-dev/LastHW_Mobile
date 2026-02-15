@@ -90,18 +90,20 @@ const ResultCard = React.memo(({ result, error, compact, previewLabel = 'Nghe th
       style={[
         small ? styles.previewBtnSmall : styles.previewBtn,
         !hasPreview && styles.previewBtnDisabled,
+        isPlaying && styles.previewBtnPlaying,
       ]}
       onPress={handlePreview}
       disabled={!hasPreview || isLoading}
     >
       <Ionicons
         name={isPlaying ? 'stop-circle' : 'play-circle'}
-        size={small ? 18 : 20}
-        color={hasPreview ? colors.textPrimary : colors.textTertiary}
+        size={small ? 20 : 24}
+        color={isPlaying ? colors.error : hasPreview ? '#fff' : colors.textTertiary}
       />
       <Text style={[
         styles.previewBtnText,
         !hasPreview && { color: colors.textTertiary },
+        isPlaying && { color: colors.error },
       ]}>
         {isLoading ? '...' : isPlaying ? 'Stop' : previewLabel}
       </Text>
@@ -241,19 +243,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    padding: spacing.sm,
+    gap: 8,
+    paddingVertical: 12,
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   previewBtnSmall: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+    paddingVertical: 8,
     backgroundColor: colors.primary,
-    borderRadius: 6,
+    borderRadius: 8,
+  },
+  previewBtnPlaying: {
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.error,
   },
   previewBtnDisabled: {
     backgroundColor: colors.surface,
@@ -261,9 +268,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   previewBtnText: {
-    fontSize: 14,
-    color: colors.textPrimary,
-    fontWeight: '600',
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '700',
   },
   linkButton: {
     flex: 1,

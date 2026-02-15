@@ -30,12 +30,12 @@ class SpeechService {
       this.recognizedText = '';
       this.isListening = true;
 
-      // Start recognition with correct types
+      // Start recognition - continuous: true so it keeps listening until user stops
       await ExpoSpeechRecognitionModule.start({
         lang: language,
         interimResults: true,
         maxAlternatives: 1,
-        continuous: false,
+        continuous: true,
         requiresOnDeviceRecognition: false,
         addsPunctuation: false,
         contextualStrings: [],
@@ -50,21 +50,29 @@ class SpeechService {
   // Stop speech recognition and get result
   async stopRecognition(): Promise<string> {
     try {
+      console.log('[SpeechService] Stopping... isListening:', this.isListening, 'currentText:', this.recognizedText);
+
       if (this.isListening) {
+        // Stop recognition - this triggers the final result event
         await ExpoSpeechRecognitionModule.stop();
       }
       this.isListening = false;
-      
-      // Get the final result
-      const result = await ExpoSpeechRecognitionModule.getStateAsync();
-      if (result === 'recognizing' || result === 'starting') {
-        await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Wait for the final result event to fire
+      // If we already have text, wait briefly; if not, wait longer
+      if (this.recognizedText) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      } else {
+        // Wait longer in case the final result event hasn't fired yet
+        await new Promise(resolve => setTimeout(resolve, 1500));
       }
 
+      console.log('[SpeechService] Final text:', this.recognizedText);
       return this.recognizedText || '';
     } catch (error) {
       console.error('Stop recognition error:', error);
-      return this.recognizedText;
+      // Still return whatever text we have even if stop() threw
+      return this.recognizedText || '';
     }
   }
 

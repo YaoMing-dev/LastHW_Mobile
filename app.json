@@ -34,9 +34,6 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "GOOGLE_CLIENT_ID": "your-google-client-id-here",
-      "GOOGLE_CLIENT_SECRET": "your-google-client-secret-here",
-      "GENIUS_API_KEY": "your-genius-api-key-here",
       "eas": {
         "projectId": "cbfd917c-ccf8-456a-8d05-2ac514720455"
       }

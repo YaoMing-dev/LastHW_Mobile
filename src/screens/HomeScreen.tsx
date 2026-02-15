@@ -1,5 +1,5 @@
 // Home Screen
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,66 +27,123 @@ export default function HomeScreen() {
   const navigation = useNavigation<HomeScreenNavigationProp>();
   const { speechLanguage, setSpeechLanguage, uiLanguage } = useAppContext();
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
+  const recordingStateRef = useRef<RecordingState>('idle');
   const t = translations[uiLanguage].home;
-  
-  // MOCK MODE OFF - Use real recording
-  const MOCK_MODE = false;
 
-  // Speech recognition event handler
+  // Keep ref in sync with state
+  const updateState = useCallback((state: RecordingState) => {
+    recordingStateRef.current = state;
+    setRecordingState(state);
+  }, []);
+
+  // Speech recognition event handler - accumulate ALL results for continuous mode
   useSpeechRecognitionEvent('result', (event) => {
-    const recognizedText = event.results[0]?.transcript || '';
-    speechService.setRecognizedText(recognizedText);
+    try {
+      let fullText = '';
+      const results = event.results;
+
+      if (Array.isArray(results)) {
+        // Native format: results is an array of { transcript, confidence }
+        fullText = results.map((r: any) => r?.transcript || '').join(' ');
+      } else if (results && typeof results === 'object') {
+        // Web SpeechRecognitionResultList format (not a real array)
+        const parts: string[] = [];
+        for (let i = 0; i < (results as any).length; i++) {
+          const item = (results as any)[i];
+          const transcript = item?.[0]?.transcript || item?.transcript || '';
+          if (transcript) parts.push(transcript);
+        }
+        fullText = parts.join(' ');
+      }
+
+      // Fallback: try the first result directly
+      if (!fullText && results) {
+        fullText = (results as any)[0]?.transcript || '';
+      }
+
+      fullText = fullText.trim();
+      console.log('[Speech] Got text:', fullText);
+      if (fullText) {
+        speechService.setRecognizedText(fullText);
+      }
+    } catch (err) {
+      console.error('[Speech] Event handler error:', err);
+      // Fallback: try to get any text we can
+      const fallback = (event as any).results?.[0]?.transcript || '';
+      if (fallback) speechService.setRecognizedText(fallback);
+    }
+  });
+
+  // Also listen for end event (in case recognition stops early)
+  useSpeechRecognitionEvent('end', () => {
+    console.log('[Speech] Recognition ended');
   });
 
   const handleRecordPress = useCallback(async () => {
-    if (recordingState === 'idle') {
+    const currentState = recordingStateRef.current;
+    console.log('[Record] Button pressed, state:', currentState);
+
+    if (currentState === 'idle') {
       // START RECORDING
+      updateState('recording');
       try {
-        await audioService.startRecording();
-        await speechService.startRecognition(speechLanguage);
-        setRecordingState('recording');
+        await Promise.all([
+          audioService.startRecording(),
+          speechService.startRecognition(speechLanguage),
+        ]);
+        console.log('[Record] Recording started successfully');
       } catch (err) {
         console.error('Start recording error:', err);
+        updateState('idle');
         Alert.alert('Error', getErrorMessage(ErrorType.NO_PERMISSION));
       }
-    } else if (recordingState === 'recording') {
-      // STOP RECORDING
-      setRecordingState('processing');
+    } else if (currentState === 'recording') {
+      // STOP RECORDING -> PROCESSING
+      updateState('processing');
+      console.log('[Record] Stopping, entering processing...');
       const lang = uiLanguage as 'vi' | 'en';
       try {
-        await audioService.stopRecording();
+        // IMPORTANT: Stop speech FIRST to capture final text before mic is released
         const recognizedText = await speechService.stopRecognition();
+        // Then stop audio recording
+        await audioService.stopRecording();
 
-        console.log('Recognized text:', recognizedText);
+        console.log('[Record] Recognized text:', JSON.stringify(recognizedText));
 
         if (!recognizedText || recognizedText.trim().length === 0) {
           Alert.alert('Error', getErrorMessage(ErrorType.NO_SPEECH, lang));
-          setRecordingState('idle');
-          return;
-        }
-
-        if (recognizedText.trim().length < 3) {
-          Alert.alert('Error', getErrorMessage(ErrorType.UNCLEAR_SPEECH, lang));
-          setRecordingState('idle');
+          updateState('idle');
           return;
         }
 
         // Search on Genius API - multiple results
-        const searchResults = await geniusService.searchMultiple(recognizedText);
-        console.log('Search results:', searchResults.length);
+        console.log('[Record] Searching for:', recognizedText);
+        let searchResults: any[] = [];
+        try {
+          searchResults = await geniusService.searchMultiple(recognizedText);
+          console.log('[Record] Search results:', searchResults.length);
+        } catch (searchErr) {
+          console.error('[Record] Search failed:', searchErr);
+          // Continue with empty results - still navigate
+        }
 
         // Save to history (first result)
-        await storageService.saveHistory({
-          id: Date.now().toString(),
-          timestamp: Date.now(),
-          query: recognizedText,
-          result: searchResults[0] || null,
-          language: speechLanguage
-        });
+        try {
+          await storageService.saveHistory({
+            id: Date.now().toString(),
+            timestamp: Date.now(),
+            query: recognizedText,
+            result: searchResults[0] || null,
+            language: speechLanguage
+          });
+        } catch (historyErr) {
+          console.error('[Record] Save history failed:', historyErr);
+        }
 
-        // Navigate to Search screen with multiple results
+        // Always navigate to Search screen with results (even if empty)
+        console.log('[Record] Navigating to Search with', searchResults.length, 'results');
         navigation.navigate('Search', { transcript: recognizedText, results: searchResults });
-        setRecordingState('idle');
+        updateState('idle');
 
       } catch (err: any) {
         console.error('Recording error:', err);
@@ -96,10 +153,10 @@ export default function HomeScreen() {
         } else {
           Alert.alert('Error', getErrorMessage(ErrorType.API_ERROR, lang));
         }
-        setRecordingState('idle');
+        updateState('idle');
       }
     }
-  }, [recordingState, speechLanguage, navigation, uiLanguage]);
+  }, [speechLanguage, navigation, uiLanguage, updateState]);
 
   const toggleLanguage = useCallback(() => {
     const newLang = speechLanguage === 'vi-VN' ? 'en-US' : 'vi-VN';
