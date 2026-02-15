@@ -17,7 +17,9 @@ import { useAppContext } from '../contexts/AppContext';
 import audioService from '../services/audioService';
 import speechService from '../services/speechService';
 import geniusService from '../services/geniusService';
+import auddService from '../services/auddService';
 import storageService from '../services/storageService';
+import { SongResult } from '../types';
 import { ErrorType, getErrorMessage } from '../utils/errorHandler';
 import { translations } from '../utils/translations';
 
@@ -36,47 +38,12 @@ export default function HomeScreen() {
     setRecordingState(state);
   }, []);
 
-  // Speech recognition event handler - accumulate ALL results for continuous mode
+  // Speech recognition event handler - keep longest text
   useSpeechRecognitionEvent('result', (event) => {
-    try {
-      let fullText = '';
-      const results = event.results;
-
-      if (Array.isArray(results)) {
-        // Native format: results is an array of { transcript, confidence }
-        fullText = results.map((r: any) => r?.transcript || '').join(' ');
-      } else if (results && typeof results === 'object') {
-        // Web SpeechRecognitionResultList format (not a real array)
-        const parts: string[] = [];
-        for (let i = 0; i < (results as any).length; i++) {
-          const item = (results as any)[i];
-          const transcript = item?.[0]?.transcript || item?.transcript || '';
-          if (transcript) parts.push(transcript);
-        }
-        fullText = parts.join(' ');
-      }
-
-      // Fallback: try the first result directly
-      if (!fullText && results) {
-        fullText = (results as any)[0]?.transcript || '';
-      }
-
-      fullText = fullText.trim();
-      console.log('[Speech] Got text:', fullText);
-      if (fullText) {
-        speechService.setRecognizedText(fullText);
-      }
-    } catch (err) {
-      console.error('[Speech] Event handler error:', err);
-      // Fallback: try to get any text we can
-      const fallback = (event as any).results?.[0]?.transcript || '';
-      if (fallback) speechService.setRecognizedText(fallback);
+    const transcript = event.results[0]?.transcript || '';
+    if (transcript) {
+      speechService.setRecognizedText(transcript);
     }
-  });
-
-  // Also listen for end event (in case recognition stops early)
-  useSpeechRecognitionEvent('end', () => {
-    console.log('[Speech] Recognition ended');
   });
 
   const handleRecordPress = useCallback(async () => {
@@ -103,36 +70,64 @@ export default function HomeScreen() {
       console.log('[Record] Stopping, entering processing...');
       const lang = uiLanguage as 'vi' | 'en';
       try {
-        // IMPORTANT: Stop speech FIRST to capture final text before mic is released
+        // Stop speech first to capture text, then stop audio to get file URI
         const recognizedText = await speechService.stopRecognition();
-        // Then stop audio recording
-        await audioService.stopRecording();
+        const audioUri = await audioService.stopRecording();
 
         console.log('[Record] Recognized text:', JSON.stringify(recognizedText));
+        console.log('[Record] Audio URI:', audioUri);
 
-        if (!recognizedText || recognizedText.trim().length === 0) {
+        // Run BOTH searches in parallel:
+        // 1. Speech-to-text -> Genius search (for speaking lyrics/title)
+        // 2. Audio file -> AudD fingerprint (for playing music)
+        const [geniusResults, auddResult] = await Promise.all([
+          // Genius: only if we got speech text
+          (recognizedText && recognizedText.trim().length > 0)
+            ? geniusService.searchMultiple(recognizedText).catch((err: any) => {
+                console.error('[Record] Genius search failed:', err);
+                return [] as SongResult[];
+              })
+            : Promise.resolve([] as SongResult[]),
+          // AudD: only if we have an audio file
+          audioUri
+            ? auddService.recognizeFromFile(audioUri).catch((err: any) => {
+                console.error('[Record] AudD recognition failed:', err);
+                return null;
+              })
+            : Promise.resolve(null),
+        ]);
+
+        console.log('[Record] Genius results:', geniusResults.length, '| AudD result:', auddResult?.title || 'none');
+
+        // Merge results: AudD match goes first (more accurate for music), then Genius
+        let searchResults: SongResult[] = [];
+        if (auddResult) {
+          searchResults.push(auddResult);
+        }
+        // Add Genius results, skip duplicates
+        for (const song of geniusResults) {
+          const isDupe = searchResults.some(
+            (s) => s.title.toLowerCase() === song.title.toLowerCase() &&
+                   s.artist.toLowerCase() === song.artist.toLowerCase()
+          );
+          if (!isDupe) searchResults.push(song);
+        }
+        searchResults = searchResults.slice(0, 5);
+
+        const displayText = recognizedText?.trim() || (auddResult ? `${auddResult.title} - ${auddResult.artist}` : '');
+
+        if (!displayText && searchResults.length === 0) {
           Alert.alert('Error', getErrorMessage(ErrorType.NO_SPEECH, lang));
           updateState('idle');
           return;
         }
 
-        // Search on Genius API - multiple results
-        console.log('[Record] Searching for:', recognizedText);
-        let searchResults: any[] = [];
-        try {
-          searchResults = await geniusService.searchMultiple(recognizedText);
-          console.log('[Record] Search results:', searchResults.length);
-        } catch (searchErr) {
-          console.error('[Record] Search failed:', searchErr);
-          // Continue with empty results - still navigate
-        }
-
-        // Save to history (first result)
+        // Save to history
         try {
           await storageService.saveHistory({
             id: Date.now().toString(),
             timestamp: Date.now(),
-            query: recognizedText,
+            query: displayText,
             result: searchResults[0] || null,
             language: speechLanguage
           });
@@ -140,9 +135,9 @@ export default function HomeScreen() {
           console.error('[Record] Save history failed:', historyErr);
         }
 
-        // Always navigate to Search screen with results (even if empty)
-        console.log('[Record] Navigating to Search with', searchResults.length, 'results');
-        navigation.navigate('Search', { transcript: recognizedText, results: searchResults });
+        // Navigate to Search screen
+        console.log('[Record] Navigating with', searchResults.length, 'results');
+        navigation.navigate('Search', { transcript: displayText, results: searchResults });
         updateState('idle');
 
       } catch (err: any) {

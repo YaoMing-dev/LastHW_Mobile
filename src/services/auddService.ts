@@ -1,4 +1,5 @@
 // AudD API service for music recognition from audio
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { SongResult } from '../types';
 import { AUDD_API_KEY, AUDD_BASE_URL } from '../utils/constants';
@@ -40,16 +41,22 @@ class AuddService {
     try {
       console.log('[AuddService] Recognizing from file:', audioUri);
 
-      // Read file as base64
-      const base64Audio = await FileSystem.readAsStringAsync(audioUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Send to AudD API
       const formData = new FormData();
       formData.append('api_token', AUDD_API_KEY);
-      formData.append('audio', base64Audio);
       formData.append('return', 'spotify,apple_music');
+
+      if (Platform.OS === 'web') {
+        // Web: fetch blob from URI and send directly
+        const response = await fetch(audioUri);
+        const blob = await response.blob();
+        formData.append('file', blob, 'recording.webm');
+      } else {
+        // Native: read file as base64
+        const base64Audio = await FileSystem.readAsStringAsync(audioUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        formData.append('audio', base64Audio);
+      }
 
       const response = await fetch(AUDD_BASE_URL, {
         method: 'POST',

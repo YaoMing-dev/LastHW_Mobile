@@ -76,9 +76,12 @@ class SpeechService {
     }
   }
 
-  // Set recognized text (call this from component with useSpeechRecognitionEvent)
+  // Always keep the longest text we've received
   setRecognizedText(text: string): void {
-    this.recognizedText = text;
+    if (text.length >= this.recognizedText.length) {
+      this.recognizedText = text;
+    }
+    console.log('[SpeechService] Current text:', this.recognizedText);
   }
 
   // Check if speech recognition is available
