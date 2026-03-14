@@ -45,9 +45,16 @@ class TextProcessor {
       .filter(word => word.length > 1 && !stopWords.includes(word));
   }
 
+  // Check if text is likely a song title (short phrase, ≤ 5 words)
+  isLikelyTitle(text: string): boolean {
+    const wordCount = text.trim().split(/\s+/).length;
+    return wordCount <= 5;
+  }
+
   // Build multiple search queries from approximate/misheard lyrics
   // This helps when speech recognition gets words slightly wrong
   buildSearchQueries(text: string): string[] {
+    const rawTrimmed = text.trim();
     const cleaned = this.cleanLyrics(text);
     const keywords = this.extractKeywords(cleaned);
     const queries: string[] = [];
@@ -55,18 +62,24 @@ class TextProcessor {
     // 1. Full cleaned text (best case)
     queries.push(cleaned);
 
-    // 2. Keywords only (removes stop words that might be misheard filler)
+    // 2. Raw text as-is (important for titles with stop words like "The", "A")
+    if (rawTrimmed.toLowerCase() !== cleaned && rawTrimmed.length > 0) {
+      queries.push(rawTrimmed);
+    }
+
+    // 3. Keywords only (removes stop words that might be misheard filler)
     if (keywords.length >= 2) {
       queries.push(keywords.join(' '));
     }
 
-    // 3. Longer keywords only (3+ chars, most distinctive words)
+    // 4. Longer keywords only (3+ chars, most distinctive words)
     const longKeywords = keywords.filter(w => w.length >= 3);
     if (longKeywords.length >= 2 && longKeywords.join(' ') !== keywords.join(' ')) {
       queries.push(longKeywords.join(' '));
     }
 
-    return queries;
+    // Deduplicate while preserving order
+    return queries.filter((q, i, arr) => q.length > 0 && arr.indexOf(q) === i);
   }
 }
 

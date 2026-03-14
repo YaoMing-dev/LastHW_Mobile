@@ -12,10 +12,10 @@ export const GOOGLE_CLIENT_SECRET = extra.GOOGLE_CLIENT_SECRET || process.env.GO
 export const GENIUS_API_KEY = extra.GENIUS_API_KEY || process.env.GENIUS_API_KEY || 'F9-lokZgozzFrspcUVIq1YTDl8n7HmfSQcbllsowZntvHCgaqLUCVjg8UpIm15Pk';
 export const GENIUS_BASE_URL = 'https://api.genius.com';
 
-// AudD API - Music recognition from audio
-// Get your key from https://dashboard.audd.io/
-export const AUDD_API_KEY = extra.AUDD_API_KEY || process.env.AUDD_API_KEY || '133b815e3180d3de7dc7e7693bd02706';
-export const AUDD_BASE_URL = 'https://api.audd.io';
+// ACRCloud API - Music recognition from audio fingerprint
+export const ACRCLOUD_ACCESS_KEY = extra.ACRCLOUD_ACCESS_KEY || process.env.ACRCLOUD_ACCESS_KEY || 'a4efe3e50121b418e719d44bec503888';
+export const ACRCLOUD_ACCESS_SECRET = extra.ACRCLOUD_ACCESS_SECRET || process.env.ACRCLOUD_ACCESS_SECRET || 'j89SXe5FDFM7qQmCE5Btpc8Xo1WyxSBI75HNOqLO';
+export const ACRCLOUD_HOST = extra.ACRCLOUD_HOST || process.env.ACRCLOUD_HOST || 'identify-ap-southeast-1.acrcloud.com';
 
 // Storage keys
 export const STORAGE_KEYS = {

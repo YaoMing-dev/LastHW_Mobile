@@ -165,12 +165,14 @@ class GeniusService {
       const queries = textProcessor.buildSearchQueries(lyrics);
       console.log('[GeniusService] searchMultiple queries:', queries);
 
+      // Detect if this looks like a song title (short) or lyrics (long)
+      const isLikelyTitle = textProcessor.isLikelyTitle(lyrics.trim());
+      console.log('[GeniusService] isLikelyTitle:', isLikelyTitle, 'for:', lyrics.trim());
+
       // Run lyrics search and title search in parallel for the best query
       const bestQuery = queries[0] || lyrics;
       let allResults: SongResult[] = [];
 
-      // Try lyrics-type search first (better for spoken lyrics)
-      // and normal search (better for song titles) in parallel
       const [lyricData, titleData] = await Promise.all([
         this.fetchGenius(bestQuery, 'lyric').catch(() => null),
         this.fetchGenius(bestQuery, 'song').catch(() => null),
@@ -181,20 +183,31 @@ class GeniusService {
 
       console.log('[GeniusService] Lyric hits:', lyricHits.length, '| Title hits:', titleHits.length);
 
-      // Prioritize lyric matches, then fill with title matches
       const lyricResults = this.parseHits(lyricHits, 5);
       const titleResults = this.parseHits(titleHits, 5);
-      allResults = this.deduplicateResults([...lyricResults, ...titleResults]).slice(0, 5);
+
+      // Smart ordering: short phrase → title results first; long phrase → lyric results first
+      allResults = isLikelyTitle
+        ? this.deduplicateResults([...titleResults, ...lyricResults]).slice(0, 5)
+        : this.deduplicateResults([...lyricResults, ...titleResults]).slice(0, 5);
 
       // If no results from parallel search, fall back to other query variations
       if (allResults.length === 0) {
         for (const query of queries.slice(1)) {
           if (query.length < 2) continue;
           try {
-            const data = await this.fetchGenius(query, 'lyric');
-            const hits = this.extractHits(data);
-            if (hits.length > 0) {
-              allResults = this.parseHits(hits, 5);
+            // For short queries (likely title), try song type first; else lyric type
+            const primaryType = isLikelyTitle ? 'song' : 'lyric';
+            const secondaryType = isLikelyTitle ? 'lyric' : 'song';
+            const [d1, d2] = await Promise.all([
+              this.fetchGenius(query, primaryType).catch(() => null),
+              this.fetchGenius(query, secondaryType).catch(() => null),
+            ]);
+            const h1 = this.extractHits(d1);
+            const h2 = this.extractHits(d2);
+            const merged = this.deduplicateResults([...this.parseHits(h1, 5), ...this.parseHits(h2, 5)]);
+            if (merged.length > 0) {
+              allResults = merged.slice(0, 5);
               break;
             }
           } catch (err) {

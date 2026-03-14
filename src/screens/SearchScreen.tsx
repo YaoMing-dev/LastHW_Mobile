@@ -26,6 +26,7 @@ import { RootTabParamList } from '../navigation/types';
 import { MOCK_SONGS } from '../utils/mockData';
 import { translations } from '../utils/translations';
 import geniusService from '../services/geniusService';
+import deezerService from '../services/deezerService';
 import storageService from '../services/storageService';
 
 type SearchScreenRouteProp = RouteProp<RootTabParamList, 'Search'>;
@@ -57,11 +58,26 @@ export default function SearchScreen() {
     setSearching(true);
     setHasSearched(true);
     try {
-      const found = await geniusService.searchMultiple(query);
+      const isVietnamese = speechLanguage === 'vi-VN';
+      const [geniusFound, deezerFound] = await Promise.all([
+        geniusService.searchMultiple(query).catch(() => [] as SongResult[]),
+        deezerService.searchMultiple(query).catch(() => [] as SongResult[]),
+      ]);
+
+      // Merge: language-appropriate results first, deduplicated
+      const primary = isVietnamese ? deezerFound : geniusFound;
+      const secondary = isVietnamese ? geniusFound : deezerFound;
+      const seen = new Set<string>();
+      const merged: SongResult[] = [];
+      for (const song of [...primary, ...secondary]) {
+        const key = `${song.title.toLowerCase()}::${song.artist.toLowerCase()}`;
+        if (!seen.has(key)) { seen.add(key); merged.push(song); }
+      }
+      const found = merged.slice(0, 5);
+
       setSearchResults(found);
       setSearchTranscript(query);
 
-      // Save to history
       await storageService.saveHistory({
         id: Date.now().toString(),
         timestamp: Date.now(),

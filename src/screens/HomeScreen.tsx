@@ -17,7 +17,8 @@ import { useAppContext } from '../contexts/AppContext';
 import audioService from '../services/audioService';
 import speechService from '../services/speechService';
 import geniusService from '../services/geniusService';
-import auddService from '../services/auddService';
+import acrcloudService from '../services/acrcloudService';
+import deezerService from '../services/deezerService';
 import storageService from '../services/storageService';
 import { SongResult } from '../types';
 import { ErrorType, getErrorMessage } from '../utils/errorHandler';
@@ -38,11 +39,12 @@ export default function HomeScreen() {
     setRecordingState(state);
   }, []);
 
-  // Speech recognition event handler - keep longest text
+  // Speech recognition event handler - accumulate all segments
   useSpeechRecognitionEvent('result', (event) => {
     const transcript = event.results[0]?.transcript || '';
+    const isFinal = event.isFinal ?? false;
     if (transcript) {
-      speechService.setRecognizedText(transcript);
+      speechService.setRecognizedText(transcript, isFinal);
     }
   });
 
@@ -77,35 +79,45 @@ export default function HomeScreen() {
         console.log('[Record] Recognized text:', JSON.stringify(recognizedText));
         console.log('[Record] Audio URI:', audioUri);
 
-        // Run BOTH searches in parallel:
-        // 1. Speech-to-text -> Genius search (for speaking lyrics/title)
-        // 2. Audio file -> AudD fingerprint (for playing music)
-        const [geniusResults, auddResult] = await Promise.all([
-          // Genius: only if we got speech text
-          (recognizedText && recognizedText.trim().length > 0)
+        // Run all searches in parallel:
+        // 1. Speech-to-text -> Genius search (English/global lyrics & titles)
+        // 2. Speech-to-text -> Deezer search (Vietnamese music, when vi-VN)
+        // 3. Audio file -> ACRCloud fingerprint (audio fingerprinting)
+        const isVietnamese = speechLanguage === 'vi-VN';
+        const hasText = recognizedText && recognizedText.trim().length > 0;
+
+        const [geniusResults, deezerResults, acrResult] = await Promise.all([
+          hasText
             ? geniusService.searchMultiple(recognizedText).catch((err: any) => {
                 console.error('[Record] Genius search failed:', err);
                 return [] as SongResult[];
               })
             : Promise.resolve([] as SongResult[]),
-          // AudD: only if we have an audio file
+          // Deezer: run when Vietnamese mode OR as supplement for any language
+          hasText
+            ? deezerService.searchMultiple(recognizedText).catch((err: any) => {
+                console.error('[Record] Deezer search failed:', err);
+                return [] as SongResult[];
+              })
+            : Promise.resolve([] as SongResult[]),
           audioUri
-            ? auddService.recognizeFromFile(audioUri).catch((err: any) => {
-                console.error('[Record] AudD recognition failed:', err);
+            ? acrcloudService.recognizeFromFile(audioUri).catch((err: any) => {
+                console.error('[Record] ACRCloud recognition failed:', err);
                 return null;
               })
             : Promise.resolve(null),
         ]);
 
-        console.log('[Record] Genius results:', geniusResults.length, '| AudD result:', auddResult?.title || 'none');
+        console.log('[Record] Genius:', geniusResults.length, '| Deezer:', deezerResults.length, '| ACRCloud:', acrResult?.title || 'none');
 
-        // Merge results: AudD match goes first (more accurate for music), then Genius
+        // Merge: ACRCloud first (most accurate), then language-appropriate results first, then the other
         let searchResults: SongResult[] = [];
-        if (auddResult) {
-          searchResults.push(auddResult);
-        }
-        // Add Genius results, skip duplicates
-        for (const song of geniusResults) {
+        if (acrResult) searchResults.push(acrResult);
+
+        const primaryResults = isVietnamese ? deezerResults : geniusResults;
+        const secondaryResults = isVietnamese ? geniusResults : deezerResults;
+
+        for (const song of [...primaryResults, ...secondaryResults]) {
           const isDupe = searchResults.some(
             (s) => s.title.toLowerCase() === song.title.toLowerCase() &&
                    s.artist.toLowerCase() === song.artist.toLowerCase()
@@ -114,7 +126,7 @@ export default function HomeScreen() {
         }
         searchResults = searchResults.slice(0, 5);
 
-        const displayText = recognizedText?.trim() || (auddResult ? `${auddResult.title} - ${auddResult.artist}` : '');
+        const displayText = recognizedText?.trim() || (acrResult ? `${acrResult.title} - ${acrResult.artist}` : '');
 
         if (!displayText && searchResults.length === 0) {
           Alert.alert('Error', getErrorMessage(ErrorType.NO_SPEECH, lang));

@@ -6,6 +6,8 @@ import {
 
 class SpeechService {
   private recognizedText: string = '';
+  private finalSegments: string[] = [];
+  private currentInterim: string = '';
   private isListening: boolean = false;
 
   // Request permissions
@@ -28,13 +30,15 @@ class SpeechService {
       }
 
       this.recognizedText = '';
+      this.finalSegments = [];
+      this.currentInterim = '';
       this.isListening = true;
 
-      // Start recognition - continuous: true so it keeps listening until user stops
+      // Start recognition - continuous: true keeps listening across multiple phrases
       await ExpoSpeechRecognitionModule.start({
         lang: language,
         interimResults: true,
-        maxAlternatives: 1,
+        maxAlternatives: 3,
         continuous: true,
         requiresOnDeviceRecognition: false,
         addsPunctuation: false,
@@ -50,38 +54,59 @@ class SpeechService {
   // Stop speech recognition and get result
   async stopRecognition(): Promise<string> {
     try {
-      console.log('[SpeechService] Stopping... isListening:', this.isListening, 'currentText:', this.recognizedText);
+      console.log('[SpeechService] Stopping... isListening:', this.isListening, 'segments:', this.finalSegments.length, 'interim:', this.currentInterim);
 
       if (this.isListening) {
-        // Stop recognition - this triggers the final result event
         await ExpoSpeechRecognitionModule.stop();
       }
       this.isListening = false;
 
-      // Wait for the final result event to fire
-      // If we already have text, wait briefly; if not, wait longer
-      if (this.recognizedText) {
-        await new Promise(resolve => setTimeout(resolve, 300));
+      // Wait for final result events to fire
+      if (this.recognizedText || this.finalSegments.length > 0) {
+        await new Promise(resolve => setTimeout(resolve, 400));
       } else {
-        // Wait longer in case the final result event hasn't fired yet
         await new Promise(resolve => setTimeout(resolve, 1500));
       }
 
-      console.log('[SpeechService] Final text:', this.recognizedText);
-      return this.recognizedText || '';
+      // Flush any remaining interim as a final segment before building result
+      if (this.currentInterim && !this.finalSegments.includes(this.currentInterim)) {
+        this.finalSegments.push(this.currentInterim);
+        this.currentInterim = '';
+      }
+      const fullText = this.finalSegments.join(' ').trim() || this.recognizedText;
+
+      console.log('[SpeechService] Final segments:', this.finalSegments);
+      console.log('[SpeechService] Full text:', fullText);
+      return fullText;
     } catch (error) {
       console.error('Stop recognition error:', error);
-      // Still return whatever text we have even if stop() threw
       return this.recognizedText || '';
     }
   }
 
-  // Always keep the longest text we've received
-  setRecognizedText(text: string): void {
-    if (text.length >= this.recognizedText.length) {
-      this.recognizedText = text;
+  // Update recognized text: accumulate final segments, track interim
+  setRecognizedText(text: string, isFinal: boolean = false): void {
+    if (!text.trim()) return;
+    const trimmed = text.trim();
+
+    if (isFinal) {
+      if (!this.finalSegments.includes(trimmed)) {
+        this.finalSegments.push(trimmed);
+      }
+      this.currentInterim = '';
+      this.recognizedText = this.finalSegments.join(' ');
+    } else {
+      // Detect utterance boundary: if new interim is much shorter than current,
+      // the previous utterance ended without firing isFinal (Android behavior)
+      if (this.currentInterim && trimmed.length < this.currentInterim.length * 0.6) {
+        if (!this.finalSegments.includes(this.currentInterim)) {
+          this.finalSegments.push(this.currentInterim);
+        }
+      }
+      this.currentInterim = trimmed;
+      this.recognizedText = [...this.finalSegments, this.currentInterim].join(' ').trim();
     }
-    console.log('[SpeechService] Current text:', this.recognizedText);
+    console.log('[SpeechService] isFinal:', isFinal, '| text:', trimmed, '| fullText:', this.recognizedText);
   }
 
   // Check if speech recognition is available
